@@ -1,0 +1,86 @@
+import face_recognition
+import cv2
+import os
+import numpy as np
+import pandas as pd
+from datetime import datetime
+
+# Bilinen yüzlerin olduğu klasör
+KNOWN_FACES_DIR = "taninan_yuzler"
+TOLERANCE = 0.6
+MODEL = "hog"
+video_capture = cv2.VideoCapture(0)
+
+# Kameranın çözünürlüğünü ayarlayın
+video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+
+known_faces = []
+known_names = []
+
+# Kayıt için boş bir liste oluşturun
+recognized_data = []
+recognized_set = set()  # Daha önce tanınan kişileri takip etmek için
+
+# Yüzleri yüklemek için fonksiyon
+def load_faces_from_folder(person_name):
+    folder = os.path.join(KNOWN_FACES_DIR, person_name)
+    for filename in os.listdir(folder):
+        if filename == '.DS_Store':
+            continue
+        image_path = os.path.join(folder, filename)
+        image = face_recognition.load_image_file(image_path)
+        encodings = face_recognition.face_encodings(image)
+        if encodings:
+            encoding = encodings[0]
+            known_faces.append(encoding)
+            known_names.append(person_name)
+
+# Yüz verilerini yükle
+load_faces_from_folder('cihat')
+load_faces_from_folder('tadic')
+load_faces_from_folder('yasemin') 
+
+while True:
+    ret, frame = video_capture.read()
+    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+    
+    face_locations = face_recognition.face_locations(small_frame, model=MODEL)
+    face_encodings = face_recognition.face_encodings(small_frame, face_locations)
+    
+    for face_encoding, face_location in zip(face_encodings, face_locations):
+        matches = face_recognition.compare_faces(known_faces, face_encoding, TOLERANCE)
+        name = "Unknown"
+        
+        if True in matches:
+            match_index = matches.index(True)
+            name = known_names[match_index]
+            time_seen = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Görüldüğü zamanı al
+            
+            # Eğer kişi daha önce tanınmadıysa kaydedin
+            if name not in recognized_set:
+                recognized_data.append({"Name": name, "Time": time_seen})
+                recognized_set.add(name)  # Kişiyi set'e ekle
+                
+                # Anlık kaydetme
+                df = pd.DataFrame(recognized_data)
+                output_file = "/Users/cihatkutluca/Desktop/yuz_tanima/recognized_faces.xlsx"
+                df.to_excel(output_file, index=False, engine='openpyxl')
+                print(f"Data for {name} saved to {output_file}")
+        
+        top, right, bottom, left = face_location
+        top *= 4
+        right *= 4
+        bottom *= 4
+        left *= 4
+        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+        cv2.putText(frame, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+    
+    cv2.imshow("Face Recognition", frame)
+    
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Kamerayı kapat ve pencereleri kapat
+video_capture.release()
+cv2.destroyAllWindows()
